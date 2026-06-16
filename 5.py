@@ -62,6 +62,9 @@ class TimerApp:
         self.start_notification_checker()
         self.load_timer_state()  # Загружаем состояние таймера при запуске
         self.load_notes_data()   # Загружаем заметки при запуске
+        
+        # Запускаем автообновление списка заметок
+        self.auto_update_notes_list()
 
     def setup_ui(self):
         """Настраивает весь пользовательский интерфейс"""
@@ -193,7 +196,7 @@ class TimerApp:
         ttk.Label(input_frame, text="Прогресс:").grid(row=3, column=0, padx=5, pady=5, sticky=W)
         self.progress_var = IntVar(value=0)
         self.progress_scale = ttk.Scale(input_frame, from_=0, to=100, variable=self.progress_var,
-                                      orient=HORIZONTAL, length=200)
+                                      orient=HORIZONTAL, length=200, command=self.on_progress_change)
         self.progress_scale.grid(row=3, column=1, padx=5, pady=5, sticky=W+E)
         self.progress_label = ttk.Label(input_frame, text="0%")
         self.progress_label.grid(row=3, column=2, padx=5, pady=5)
@@ -246,6 +249,22 @@ class TimerApp:
         self.date_entry.config(validate="key", validatecommand=vcmd)
         # Привязываем проверку при потере фокуса
         self.date_entry.bind('<FocusOut>', self.validate_date_entry)
+
+    def on_progress_change(self, value):
+        """Обработчик изменения прогресса"""
+        progress_value = int(float(value))
+        self.progress_label.config(text=f"{progress_value}%")
+        
+        # Обновляем прогресс в выбранной заметке
+        selected = self.notes_tree.selection()
+        if selected:
+            item = self.notes_tree.item(selected[0])
+            note_index = item['values'][0] - 1
+            
+            if 0 <= note_index < len(self.notes):
+                self.notes[note_index]["progress"] = progress_value
+                self.update_notes_list()
+                self.save_notes_data()
 
     def validate_date(self, new_text):
         """Валидация ввода даты в реальном времени"""
@@ -342,7 +361,7 @@ class TimerApp:
     def setup_failed_tab(self):
         """Настраивает вкладку несделанных заметок"""
         failed_frame = ttk.Frame(self.notebook)
-        self.notebook.add(failed_frame, text="Активные" "")
+        self.notebook.add(failed_frame, text="Просроченные")
 
         columns = ("№", "Задача", "Дата создания", "Дата окончания", "Сложность", "Причина")
         self.failed_tree = ttk.Treeview(failed_frame, columns=columns, show="headings", height=15)
@@ -584,6 +603,8 @@ class TimerApp:
         for item in self.notes_tree.get_children():
             self.notes_tree.delete(item)
 
+        notes_to_remove = []
+        
         for index, note in enumerate(self.notes):
             deadline_str = note["deadline"].strftime("%d.%m.%Y %H:%M")
             time_left = note["deadline"] - datetime.now()
@@ -596,7 +617,7 @@ class TimerApp:
             else:
                 time_left_str = "Просрочено"
                 # Автоматически перемещаем в несделанные при просрочке
-                self.move_to_failed(note, "Просрочено")
+                notes_to_remove.append(note)
                 continue
 
             # Подсчитываем подзадачи
@@ -614,6 +635,10 @@ class TimerApp:
                 f"{note.get('progress', 0)}%",
                 subtask_info
             ))
+        
+        # Перемещаем просроченные заметки
+        for note in notes_to_remove:
+            self.move_to_failed(note, "Просрочено")
 
     def move_to_failed(self, note, reason):
         """Перемещает заметку в несделанные"""
@@ -627,6 +652,7 @@ class TimerApp:
             self.notes.remove(note)
 
         # Обновляем отображение
+        self.update_notes_list()
         self.update_failed_list()
         self.save_notes_data()  # Сохраняем после перемещения
 
